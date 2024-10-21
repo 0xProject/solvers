@@ -24,6 +24,7 @@ impl Api {
             .route("/metrics", axum::routing::get(routes::metrics))
             .route("/healthz", axum::routing::get(routes::healthz))
             .route("/solve", axum::routing::post(routes::solve))
+            .layer(DefaultBodyLimit::max(5 * 1024 * 1024))
             .layer(
                 tower::ServiceBuilder::new().layer(tower_http::trace::TraceLayer::new_for_http()),
             )

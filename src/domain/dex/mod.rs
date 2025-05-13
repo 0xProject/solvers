@@ -5,8 +5,7 @@
 use {
     crate::{
         domain::{self, auction, eth, order, solution},
-        infra,
-        util,
+        infra, util,
     },
     ethereum_types::U256,
     std::fmt::{self, Debug, Formatter},

@@ -2,10 +2,7 @@
 //! [here](https://docs.0x.org/0x-api-swap/api-references/get-swap-v1-quote).
 
 use {
-    crate::{
-        domain::{dex, order},
-        util::serialize,
-    },
+    crate::{domain::dex, util::serialize},
     bigdecimal::BigDecimal,
     ethereum_types::{H160, U256},
     serde::{Deserialize, Serialize},
@@ -20,6 +17,9 @@ use {
 #[derive(Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Query {
+    /// Chain ID of the network.
+    pub chain_id: u64,
+
     /// Contract address of a token to sell.
     pub sell_token: H160,
 
@@ -27,48 +27,26 @@ pub struct Query {
     pub buy_token: H160,
 
     /// Amount of a token to sell, set in atoms.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde_as(as = "Option<serialize::U256>")]
-    pub sell_amount: Option<U256>,
+    pub sell_amount: U256,
 
-    /// Amount of a token to sell, set in atoms.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde_as(as = "Option<serialize::U256>")]
-    pub buy_amount: Option<U256>,
+    /// The address which will fill the quote.
+    pub taker: H160,
 
-    /// Limit of price slippage you are willing to accept.
+    /// The origin address of the transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub slippage_percentage: Option<Slippage>,
+    pub tx_origin: Option<H160>,
 
     /// The target gas price for the swap transaction.
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde_as(as = "Option<serialize::U256>")]
-    pub gas_price: Option<U256>,
+    pub gas_price: Option<String>,
 
-    /// The address which will fill the quote.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub taker_address: Option<H160>,
+    /// The slippage percentage in basis points.
+    pub slippage_bps: Option<u16>,
 
     /// List of sources to exclude.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde_as(as = "serialize::CommaSeparated")]
     pub excluded_sources: Vec<String>,
-
-    /// Whether or not to skip quote validation.
-    pub skip_validation: bool,
-
-    /// Wether or not you intend to actually fill the quote. Setting this flag
-    /// enables RFQ-T liquidity.
-    ///
-    /// <https://docs.0x.org/market-makers/docs/introduction>
-    pub intent_on_filling: bool,
-
-    /// The affiliate address to use for tracking and analytics purposes.
-    pub affiliate_address: H160,
-
-    /// Requests trade routes which aim to protect against high slippage and MEV
-    /// attacks.
-    pub enable_slippage_protection: bool,
 }
 
 /// A 0x slippage amount.
@@ -77,29 +55,24 @@ pub struct Slippage(BigDecimal);
 
 impl Query {
     pub fn with_domain(self, order: &dex::Order, slippage: &dex::Slippage) -> Self {
-        let (sell_amount, buy_amount) = match order.side {
-            order::Side::Buy => (None, Some(order.amount.get())),
-            order::Side::Sell => (Some(order.amount.get()), None),
-        };
+        let sell_amount = order.amount.get();
+        let slippage_bps = slippage.as_bps();
 
         Self {
             sell_token: order.sell.0,
             buy_token: order.buy.0,
             sell_amount,
-            buy_amount,
-            // Note that the API calls this "slippagePercentage", but it is **not** a
-            // percentage but a factor.
-            slippage_percentage: Some(Slippage(slippage.as_factor().clone())),
+            slippage_bps,
             ..self
         }
     }
 }
 
-/// A Ox API quote response.
+/// A 0x API transaction data.
 #[serde_as]
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Quote {
+pub struct Transaction {
     /// The address of the contract to call in order to execute the swap.
     pub to: H160,
 
@@ -107,10 +80,18 @@ pub struct Quote {
     #[serde_as(as = "serialize::Hex")]
     pub data: Vec<u8>,
 
-    /// The estimate for the amount of gas that will actually be used in the
-    /// transaction.
+    /// The gas limit for the transaction.
     #[serde_as(as = "serialize::U256")]
-    pub estimated_gas: U256,
+    pub gas: U256,
+}
+
+/// A Ox API quote response.
+#[serde_as]
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Quote {
+    /// The transaction details for executing the swap.
+    pub transaction: Transaction,
 
     /// The amount of sell token (in atoms) that would be sold in this swap.
     #[serde_as(as = "serialize::U256")]
@@ -119,28 +100,6 @@ pub struct Quote {
     /// The amount of buy token (in atoms) that would be bought in this swap.
     #[serde_as(as = "serialize::U256")]
     pub buy_amount: U256,
-
-    /// The target contract address for which the user needs to have an
-    /// allowance in order to be able to complete the swap.
-    #[serde(with = "address_none_when_zero")]
-    pub allowance_target: Option<H160>,
-}
-
-/// The 0x API uses the 0-address to indicate that no approvals are needed for a
-/// swap. Use a custom deserializer to turn that into `None`.
-mod address_none_when_zero {
-    use {
-        ethereum_types::H160,
-        serde::{Deserialize, Deserializer},
-    };
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<H160>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let value = H160::deserialize(deserializer)?;
-        Ok((!value.is_zero()).then_some(value))
-    }
 }
 
 #[derive(Deserialize)]

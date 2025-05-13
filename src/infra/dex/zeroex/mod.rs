@@ -3,7 +3,6 @@ use {
         domain::{dex, eth, order},
         util,
     },
-    ethereum_types::H160,
     ethrpc::block_stream::CurrentBlockWatcher,
     hyper::StatusCode,
     std::sync::atomic::{self, AtomicU64},
@@ -20,6 +19,8 @@ pub struct ZeroEx {
 }
 
 pub struct Config {
+    // The chain id to generate the quote for.
+    pub chain_id: u64,
     /// The base URL for the 0x swap API.
     pub endpoint: reqwest::Url,
 
@@ -31,19 +32,8 @@ pub struct Config {
     /// will not be considered when solving.
     pub excluded_sources: Vec<String>,
 
-    /// The affiliate address to use.
-    ///
-    /// This is used by 0x for tracking and analytic purposes.
-    pub affiliate: H160,
-
     /// The address of the settlement contract.
     pub settlement: eth::ContractAddress,
-
-    /// Wether or not to enable RFQ-T liquidity.
-    pub enable_rfqt: bool,
-
-    /// Whether or not to enable slippage protection.
-    pub enable_slippage_protection: bool,
 
     /// The stream that yields every new block.
     pub block_stream: Option<CurrentBlockWatcher>,
@@ -57,6 +47,7 @@ impl ZeroEx {
 
             let mut headers = reqwest::header::HeaderMap::new();
             headers.insert("0x-api-key", key);
+            headers.insert("0x-version", "v2".parse()?);
 
             let client = reqwest::Client::builder()
                 .default_headers(headers)
@@ -64,12 +55,10 @@ impl ZeroEx {
             super::Client::new(client, config.block_stream)
         };
         let defaults = dto::Query {
-            taker_address: Some(config.settlement.0),
+            taker: config.settlement.0,
+            tx_origin: Some(config.settlement.0),
             excluded_sources: config.excluded_sources,
-            skip_validation: true,
-            intent_on_filling: config.enable_rfqt,
-            affiliate_address: config.affiliate,
-            enable_slippage_protection: config.enable_slippage_protection,
+            chain_id: config.chain_id,
             ..Default::default()
         };
 
@@ -85,6 +74,11 @@ impl ZeroEx {
         order: &dex::Order,
         slippage: &dex::Slippage,
     ) -> Result<dex::Swap, Error> {
+        // 0x API V2 only supports sells.
+        if order.side != order::Side::Sell {
+            return Err(Error::UnsupportedOrderSide);
+        }
+
         let query = self.defaults.clone().with_domain(order, slippage);
         let quote = {
             // Set up a tracing span to make debugging of API requests easier.
@@ -97,15 +91,12 @@ impl ZeroEx {
                 .await?
         };
 
-        let max_sell_amount = match order.side {
-            order::Side::Buy => slippage.add(quote.sell_amount),
-            order::Side::Sell => quote.sell_amount,
-        };
+        let max_sell_amount = slippage.add(quote.sell_amount);
 
         Ok(dex::Swap {
             call: dex::Call {
-                to: eth::ContractAddress(quote.to),
-                calldata: quote.data,
+                to: eth::ContractAddress(quote.transaction.to),
+                calldata: quote.transaction.data,
             },
             input: eth::Asset {
                 token: order.sell,
@@ -116,24 +107,29 @@ impl ZeroEx {
                 amount: quote.buy_amount,
             },
             allowance: dex::Allowance {
-                spender: quote
-                    .allowance_target
-                    .ok_or(Error::MissingSpender)
-                    .map(eth::ContractAddress)?,
+                spender: eth::ContractAddress(quote.transaction.to),
                 amount: dex::Amount::new(max_sell_amount),
             },
-            gas: eth::Gas(quote.estimated_gas),
+            gas: eth::Gas(quote.transaction.gas),
         })
     }
 
     async fn quote(&self, query: &dto::Query) -> Result<dto::Quote, Error> {
-        let quote = util::http::roundtrip!(
-            <dto::Quote, dto::Error>;
-            self.client
-                .request(reqwest::Method::GET, util::url::join(&self.endpoint, "quote"))
-                .query(query)
-        )
-        .await?;
+        let response = self
+            .client
+            .request(
+                reqwest::Method::GET,
+                util::url::join(&self.endpoint, "quote"),
+            )
+            .query(query)
+            .send()
+            .await?;
+
+        let response_text = response.text().await?;
+        tracing::debug!("0x API response: {}", response_text);
+
+        let quote = serde_json::from_str::<dto::Quote>(&response_text)
+            .map_err(|e| Error::Http(util::http::Error::Json(e)))?;
         Ok(quote)
     }
 }
@@ -160,6 +156,8 @@ pub enum Error {
     Api { code: i64, reason: String },
     #[error(transparent)]
     Http(util::http::Error),
+    #[error("unsupported order side")]
+    UnsupportedOrderSide,
 }
 
 impl From<util::http::RoundtripError<dto::Error>> for Error {
@@ -193,5 +191,11 @@ impl From<util::http::RoundtripError<dto::Error>> for Error {
                 }
             }
         }
+    }
+}
+
+impl From<reqwest::Error> for Error {
+    fn from(err: reqwest::Error) -> Self {
+        Self::Http(util::http::Error::Http(err))
     }
 }

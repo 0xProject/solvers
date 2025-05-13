@@ -3,7 +3,6 @@ use {
         domain::eth,
         infra::{config::dex::file, contracts, dex::zeroex},
     },
-    ethereum_types::H160,
     serde::Deserialize,
     serde_with::serde_as,
     std::path::Path,
@@ -13,6 +12,9 @@ use {
 #[derive(Deserialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 struct Config {
+    /// The chain id to generate the quote for.
+    chain_id: u64,
+
     /// The versioned URL endpoint for the 0x swap API.
     #[serde(default = "default_endpoint")]
     #[serde_as(as = "serde_with::DisplayFromStr")]
@@ -26,32 +28,10 @@ struct Config {
     /// will not be considered when solving.
     #[serde(default)]
     excluded_sources: Vec<String>,
-
-    /// The affiliate address to use. Defaults to the mainnet CoW Protocol
-    /// settlement contract address.
-    #[serde(default = "default_affiliate")]
-    affiliate: H160,
-
-    /// Whether or not to enable 0x RFQ-T liquidity.
-    #[serde(default)]
-    enable_rfqt: bool,
-
-    /// Whether or not to enable slippage protection. The slippage protection
-    /// considers average negative slippage paid out in MEV when quoting,
-    /// preferring private market maker orders when they are close to what you
-    /// would get with on-chain liquidity pools.
-    #[serde(default)]
-    enable_slippage_protection: bool,
 }
 
 fn default_endpoint() -> reqwest::Url {
-    "https://api.0x.org/swap/v1/".parse().unwrap()
-}
-
-fn default_affiliate() -> H160 {
-    contracts::Contracts::for_chain(eth::ChainId::Mainnet)
-        .settlement
-        .0
+    "https://api.0x.org/swap/allowance-holder/".parse().unwrap()
 }
 
 /// Load the 0x solver configuration from a TOML file.
@@ -68,13 +48,11 @@ pub async fn load(path: &Path) -> super::Config {
 
     super::Config {
         zeroex: zeroex::Config {
+            chain_id: config.chain_id,
             endpoint: config.endpoint,
             api_key: config.api_key,
             excluded_sources: config.excluded_sources,
-            affiliate: config.affiliate,
             settlement,
-            enable_rfqt: config.enable_rfqt,
-            enable_slippage_protection: config.enable_slippage_protection,
             block_stream: base.block_stream.clone(),
         },
         base,

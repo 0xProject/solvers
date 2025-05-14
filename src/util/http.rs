@@ -38,6 +38,7 @@ macro_rules! roundtrip {
         $crate::util::http::roundtrip!(<_, _>; $request)
     };
 }
+
 pub(crate) use roundtrip;
 
 #[doc(hidden)]
@@ -50,7 +51,7 @@ where
     T: DeserializeOwned,
     E: DeserializeOwned,
 {
-    if let Some(id) = observe::request_id::get_task_local_storage() {
+    if let Some(id) = observe::request_id::from_current_span() {
         request = request.header("X-REQUEST-ID", id);
     }
     let (client, request) = request.build_split();

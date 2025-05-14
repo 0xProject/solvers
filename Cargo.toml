@@ -17,16 +17,19 @@ path = "src/main.rs"
 anyhow = "1"
 async-trait = "0.1.80"
 axum = "0.6"
+base64 = "0.22.1"
 bigdecimal = { version = "0.3", features = ["serde"] }
 chrono = { version = "0.4.38", features = ["serde"], default-features = false }
 clap = { version = "4", features = ["derive", "env"] }
 ethereum-types = "0.14"
 futures = "0.3.30"
 hex = "0.4"
+hmac = "0.12.1"
 humantime = "2.1.0"
 humantime-serde = "1.1.1"
 hyper = "0.14"
 itertools = "0.11"
+moka = { version = "0.12", features = ["future"] }
 num = "0.4"
 prometheus = "0.13"
 prometheus-metric-storage = "0.5.0"
@@ -34,6 +37,8 @@ reqwest = "0.11"
 serde = "1"
 serde_json = "1"
 serde_with = "3"
+serde_repr = "0.1"
+sha2 = "0.10.8"
 thiserror = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
 toml = "0.7"
@@ -42,16 +47,16 @@ tower-http = { version = "0.4", features = ["trace"] }
 tracing = "0.1"
 web3 = "0.19"
 
-contracts = { git = "https://github.com/cowprotocol/services.git", tag = "v2.286.0", package = "contracts" }
-ethrpc = { git = "https://github.com/cowprotocol/services.git", tag = "v2.286.0", package = "ethrpc" }
-observe = { git = "https://github.com/cowprotocol/services.git", tag = "v2.286.0", package = "observe" }
-shared = { git = "https://github.com/cowprotocol/services.git", tag = "v2.286.0", package = "shared" }
-dto =  { git = "https://github.com/cowprotocol/services.git", tag = "v2.286.0", package = "solvers-dto" }
-rate-limit =  { git = "https://github.com/cowprotocol/services.git", tag = "v2.286.0", package = "rate-limit" }
-number =  { git = "https://github.com/cowprotocol/services.git", tag = "v2.286.0", package = "number" }
+contracts = { git = "https://github.com/cowprotocol/services.git", tag = "v2.309.0", package = "contracts" }
+ethrpc = { git = "https://github.com/cowprotocol/services.git", tag = "v2.309.0", package = "ethrpc" }
+observe = { git = "https://github.com/cowprotocol/services.git", tag = "v2.309.0", package = "observe" }
+shared = { git = "https://github.com/cowprotocol/services.git", tag = "v2.309.0", package = "shared" }
+dto =  { git = "https://github.com/cowprotocol/services.git", tag = "v2.309.0", package = "solvers-dto" }
+rate-limit =  { git = "https://github.com/cowprotocol/services.git", tag = "v2.309.0", package = "rate-limit" }
+number =  { git = "https://github.com/cowprotocol/services.git", tag = "v2.309.0", package = "number" }
 
 [dev-dependencies]
-testlib =  { git = "https://github.com/cowprotocol/services.git", tag = "v2.286.0", package = "testlib" }
+testlib =  { git = "https://github.com/cowprotocol/services.git", tag = "v2.309.0", package = "testlib" }
 glob = "0.3"
 maplit = "1"
 tempfile = "3"

@@ -1,9 +1,10 @@
 use {
     crate::{
         domain::eth,
-        infra::{config::dex::file, contracts, dex},
+        infra::{self, config::dex::file, dex},
         util::serialize,
     },
+    contracts::BalancerV2Vault,
     ethereum_types::H160,
     serde::Deserialize,
     serde_with::serde_as,
@@ -22,6 +23,14 @@ struct Config {
     /// default Vault contract address will be used.
     vault: Option<H160>,
 
+    /// Optional Balancer V3 BatchRouter contract address. If not specified, the
+    /// default contract address will be used.
+    v3_batch_router: Option<H160>,
+
+    /// Optional Permit2 contract address. If not specified, the
+    /// default contract address will be used.
+    permit2: Option<H160>,
+
     /// Chain ID used to automatically determine contract addresses and send to
     /// the SOR API.
     #[serde_as(as = "serialize::ChainId")]
@@ -39,7 +48,15 @@ struct Config {
 /// This method panics if the config is invalid or on I/O errors.
 pub async fn load(path: &Path) -> super::Config {
     let (base, config) = file::load::<Config>(path).await;
-    let contracts = contracts::Contracts::for_chain(config.chain_id);
+    let contracts = infra::contracts::Contracts::for_chain(config.chain_id);
+    let vault_contract = infra::contracts::contract_address_for_chain(
+        config.chain_id,
+        BalancerV2Vault::raw_contract(),
+    );
+    let batch_router = infra::contracts::contract_address_for_chain(
+        config.chain_id,
+        contracts::BalancerV3BatchRouter::raw_contract(),
+    );
 
     super::Config {
         sor: dex::balancer::Config {
@@ -47,7 +64,15 @@ pub async fn load(path: &Path) -> super::Config {
             vault: config
                 .vault
                 .map(eth::ContractAddress)
-                .unwrap_or(contracts.balancer_vault),
+                .unwrap_or(vault_contract),
+            v3_batch_router: config
+                .v3_batch_router
+                .map(eth::ContractAddress)
+                .unwrap_or(batch_router),
+            permit2: config
+                .permit2
+                .map(eth::ContractAddress)
+                .unwrap_or(contracts.permit2),
             settlement: base.contracts.settlement,
             block_stream: base.block_stream.clone(),
             chain_id: config.chain_id,

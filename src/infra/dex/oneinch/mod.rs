@@ -141,11 +141,7 @@ impl OneInch {
         order: &dex::Order,
         slippage: &dex::Slippage,
     ) -> Result<dex::Swap, Error> {
-        let query = self
-            .defaults
-            .clone()
-            .with_domain(order, slippage)
-            .ok_or(Error::OrderNotSupported)?;
+        let query = self.defaults.clone().try_with_domain(order, slippage)?;
         let swap = {
             // Set up a tracing span to make debugging of API requests easier.
             // Historically, debugging API requests to external DEXs was a bit
@@ -158,10 +154,10 @@ impl OneInch {
         };
 
         Ok(dex::Swap {
-            call: dex::Call {
+            calls: vec![dex::Call {
                 to: eth::ContractAddress(swap.tx.to),
                 calldata: swap.tx.data,
-            },
+            }],
             input: eth::Asset {
                 token: order.sell,
                 amount: swap.from_token_amount,
@@ -219,7 +215,9 @@ impl From<util::http::RoundtripError<dto::Error>> for Error {
                 // based on empirical observations of what the API has returned in the
                 // past.
                 match err.status_code {
-                    400 => Self::NotFound,
+                    // 403 is returned when the 1inch quote API is forbidden due to legal reason for
+                    // a specific address or an artificial address was used in the request.
+                    400 | 403 => Self::NotFound,
                     _ => Self::Api {
                         code: err.status_code,
                         description: err.description,

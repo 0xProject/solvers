@@ -1,41 +1,23 @@
-use crate::domain::eth;
+use {crate::domain::eth, alloy::primitives::Address};
 
 #[derive(Clone, Debug)]
 pub struct Contracts {
-    pub weth: eth::WethAddress,
-    pub settlement: eth::ContractAddress,
-    pub authenticator: eth::ContractAddress,
-    pub permit2: eth::ContractAddress,
+    pub settlement: Address,
+    pub authenticator: Address,
+    pub permit2: Address,
 }
 
 impl Contracts {
     pub fn for_chain(chain: eth::ChainId) -> Self {
         Self {
-            weth: eth::WethAddress(
-                contract_address_for_chain(chain, contracts::WETH9::raw_contract()).0,
-            ),
-            settlement: contract_address_for_chain(
-                chain,
-                contracts::GPv2Settlement::raw_contract(),
-            ),
-            authenticator: contract_address_for_chain(
-                chain,
-                contracts::GPv2AllowListAuthentication::raw_contract(),
-            ),
-            permit2: contract_address_for_chain(chain, contracts::Permit2::raw_contract()),
+            settlement: contracts::alloy::GPv2Settlement::deployment_address(&(chain as u64))
+                .expect("contract address for all supported chains"),
+            authenticator: contracts::alloy::GPv2AllowListAuthentication::deployment_address(
+                &(chain as u64),
+            )
+            .expect("contract address for all supported chains"),
+            permit2: contracts::alloy::Permit2::deployment_address(&(chain as u64))
+                .expect("contract address for all supported chains"),
         }
     }
-}
-
-pub fn contract_address_for_chain(
-    chain: eth::ChainId,
-    contract: &contracts::ethcontract::Contract,
-) -> eth::ContractAddress {
-    eth::ContractAddress(
-        contract
-            .networks
-            .get(chain.network_id())
-            .expect("contract address for all supported chains")
-            .address,
-    )
 }

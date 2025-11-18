@@ -1,6 +1,8 @@
 use {crate::tests, std::net::SocketAddr};
 
 mod market_order;
+mod minimum_surplus;
+mod mock_query_swap_provider;
 mod not_found;
 mod out_of_price;
 
@@ -16,13 +18,25 @@ chain-id = '1'
     ))
 }
 
+/// Creates a temporary file containing the config of the given solver with
+/// custom top-level settings.
+pub fn config_with(solver_addr: &SocketAddr, extra_config: &str) -> tests::Config {
+    tests::Config::String(format!(
+        r"
+node-url = 'http://localhost:8545'
+{extra_config}
+[dex]
+endpoint = 'http://{solver_addr}/sor'
+chain-id = '1'
+        ",
+    ))
+}
+
 // Copy from src/infra/dex/balancer/dto.rs
 pub const SWAP_QUERY: &str = r#"
-query sorGetSwapPaths($callDataInput: GqlSwapCallDataInput!, $chain: GqlChain!, $queryBatchSwap: Boolean!, $swapAmount: AmountHumanReadable!, $swapType: GqlSorSwapType!, $tokenIn: String!, $tokenOut: String!) {
+query sorGetSwapPaths($chain: GqlChain!, $swapAmount: AmountHumanReadable!, $swapType: GqlSorSwapType!, $tokenIn: String!, $tokenOut: String!) {
     sorGetSwapPaths(
-        callDataInput: $callDataInput,
         chain: $chain,
-        queryBatchSwap: $queryBatchSwap,
         swapAmount: $swapAmount,
         swapType: $swapType,
         tokenIn: $tokenIn,

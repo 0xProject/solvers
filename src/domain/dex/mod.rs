@@ -8,10 +8,14 @@ use {
         infra,
         util,
     },
+    alloy::primitives::Address,
     ethereum_types::U256,
+    ethrpc::alloy::conversions::{IntoAlloy, IntoLegacy},
     std::fmt::{self, Debug, Formatter},
 };
 
+pub mod minimum_surplus;
+mod shared;
 pub mod slippage;
 
 pub use self::slippage::Slippage;
@@ -57,7 +61,7 @@ impl Order {
 /// An on-chain Ethereum call for executing a DEX swap.
 pub struct Call {
     /// The address that gets called on-chain.
-    pub to: eth::ContractAddress,
+    pub to: Address,
     /// The associated calldata for the on-chain call.
     pub calldata: Vec<u8>,
 }
@@ -94,7 +98,7 @@ pub struct Swap {
 impl Swap {
     pub fn allowance(&self) -> solution::Allowance {
         solution::Allowance {
-            spender: self.allowance.spender.0,
+            spender: self.allowance.spender.into_legacy(),
             asset: eth::Asset {
                 token: self.input.token,
                 amount: self.allowance.amount.0,
@@ -113,7 +117,7 @@ impl Swap {
         gas_offset: eth::Gas,
     ) -> Option<solution::Solution> {
         let gas = if order.class == order::Class::Limit {
-            match simulator.gas(order.owner(), &self).await {
+            match simulator.gas(order.owner().into_alloy(), &self).await {
                 Ok(value) => value,
                 Err(infra::dex::simulator::Error::SettlementContractIsOwner) => self.gas,
                 Err(err) => {
@@ -133,7 +137,7 @@ impl Swap {
             .into_iter()
             .map(|call| {
                 solution::Interaction::Custom(solution::CustomInteraction {
-                    target: call.to.0,
+                    target: call.to.into_legacy(),
                     value: eth::Ether::default(),
                     calldata: call.calldata,
                     inputs: vec![self.input],
@@ -158,6 +162,16 @@ impl Swap {
         self.output.amount.full_mul(order.sell.amount)
             >= self.input.amount.full_mul(order.buy.amount)
     }
+
+    pub fn satisfies_with_minimum_surplus(
+        &self,
+        order: &domain::order::Order,
+        minimum_surplus: &minimum_surplus::MinimumSurplus,
+    ) -> bool {
+        let required_buy_amount = minimum_surplus.add(order.buy.amount);
+        self.output.amount.full_mul(order.sell.amount)
+            >= self.input.amount.full_mul(required_buy_amount)
+    }
 }
 
 /// A swap allowance.
@@ -165,7 +179,7 @@ impl Swap {
 pub struct Allowance {
     /// The spender address that requires an allowance in order to execute a
     /// swap.
-    pub spender: eth::ContractAddress,
+    pub spender: Address,
     /// The amount, in tokens, of the required allowance.
     pub amount: Amount,
 }

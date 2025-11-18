@@ -1,5 +1,3 @@
-use {crate::util::bytes::Bytes, web3::types::AccessList};
-
 mod chain;
 
 pub use {
@@ -22,10 +20,6 @@ impl From<H160> for TokenAddress {
         Self(inner)
     }
 }
-
-/// The WETH token (or equivalent) for the EVM compatible network.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct WethAddress(pub H160);
 
 /// An asset on the Ethereum blockchain. Represents a particular amount of a
 /// particular token.
@@ -57,9 +51,6 @@ impl std::ops::Add for Gas {
     }
 }
 
-/// A 256-bit rational type.
-pub type Rational = num::rational::Ratio<U256>;
-
 /// An address. Can be an EOA or a smart contract address.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Address(pub H160);
@@ -74,16 +65,6 @@ impl From<Address> for H160 {
     fn from(value: Address) -> Self {
         value.0
     }
-}
-
-/// An onchain transaction.
-#[derive(Debug, Clone)]
-pub struct Tx {
-    pub from: Address,
-    pub to: Address,
-    pub value: Ether,
-    pub input: Bytes<Vec<u8>>,
-    pub access_list: AccessList,
 }
 
 /// An arbitrary ethereum interaction that is required for the settlement

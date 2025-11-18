@@ -1,5 +1,5 @@
 use {
-    crate::domain::{eth, liquidity, order},
+    crate::domain::{eth, order},
     ethereum_types::U256,
     std::{
         collections::HashMap,
@@ -14,7 +14,6 @@ pub struct Auction {
     pub id: Id,
     pub tokens: Tokens,
     pub orders: Vec<order::Order>,
-    pub liquidity: Vec<liquidity::Liquidity>,
     pub gas_price: GasPrice,
     pub deadline: Deadline,
 }
@@ -60,7 +59,6 @@ impl Display for Id {
 #[derive(Debug)]
 pub struct Token {
     pub decimals: Option<u8>,
-    pub symbol: Option<String>,
     pub reference_price: Option<Price>,
     pub available_balance: U256,
     pub trusted: bool,
@@ -78,7 +76,7 @@ impl Price {
     /// Computes an amount equivalent in value to the specified [`eth::Ether`]
     /// at the given price.
     pub fn ether_value(&self, eth: eth::Ether) -> Option<U256> {
-        eth.0.checked_mul(Self::BASE.into())?.checked_div(self.0 .0)
+        eth.0.checked_mul(Self::BASE.into())?.checked_div(self.0.0)
     }
 }
 

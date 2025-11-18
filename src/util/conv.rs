@@ -2,15 +2,18 @@
 
 use {
     crate::domain::eth,
-    bigdecimal::{num_bigint::ToBigInt, BigDecimal},
+    bigdecimal::{BigDecimal, num_bigint::ToBigInt},
     ethereum_types::U256,
-    num::{rational::Ratio, BigInt, BigUint, One},
+    num::{BigInt, BigUint, One, rational::Ratio},
 };
+
+/// A 256-bit rational type.
+type Rational = num::rational::Ratio<U256>;
 
 /// Converts a `BigDecimal` value to a `eth::Rational` value. Returns `None` if
 /// the specified decimal value cannot be represented as a rational of `U256`
 /// integers.
-pub fn decimal_to_rational(d: &BigDecimal) -> Option<eth::Rational> {
+pub fn decimal_to_rational(d: &BigDecimal) -> Option<Rational> {
     let (int, exp) = d.as_bigint_and_exponent();
 
     // First convert to a `Ratio<BigUint>`. This ensures that the ratio is
@@ -28,7 +31,7 @@ pub fn decimal_to_rational(d: &BigDecimal) -> Option<eth::Rational> {
     let numer = biguint_to_u256(ratio.numer())?;
     let denom = biguint_to_u256(ratio.denom())?;
 
-    Some(eth::Rational::new_raw(numer, denom))
+    Some(Rational::new_raw(numer, denom))
 }
 
 pub fn biguint_to_u256(i: &BigUint) -> Option<U256> {
@@ -62,6 +65,7 @@ pub fn bigdecimal_to_u256(d: &BigDecimal) -> Option<U256> {
 }
 
 /// Converts a `BigDecimal` amount in Ether units to wei.
+#[allow(dead_code)]
 pub fn decimal_to_ether(d: &BigDecimal) -> Option<eth::Ether> {
     let scaled = d * BigDecimal::new(BigInt::one(), -18);
     let ratio = decimal_to_rational(&scaled)?;

@@ -2,12 +2,16 @@
 
 use {
     crate::{
-        domain::{dex::slippage, eth},
+        domain::{
+            dex::{minimum_surplus::MinimumSurplusLimits, slippage::SlippageLimits},
+            eth,
+        },
         infra::{blockchain, config::unwrap_or_log, contracts},
         util::serialize,
     },
-    bigdecimal::BigDecimal,
-    serde::{de::DeserializeOwned, Deserialize},
+    bigdecimal::{BigDecimal, Zero},
+    ethrpc::alloy::conversions::IntoAlloy,
+    serde::{Deserialize, de::DeserializeOwned},
     serde_with::serde_as,
     std::{fmt::Debug, num::NonZeroUsize, path::Path, time::Duration},
     tokio::fs,
@@ -33,6 +37,15 @@ struct Config {
     /// The absolute slippage allowed by the solver.
     #[serde_as(as = "Option<serialize::U256>")]
     absolute_slippage: Option<eth::U256>,
+
+    /// The relative minimum surplus required by the solver.
+    #[serde(default = "default_relative_minimum_surplus")]
+    #[serde_as(as = "serde_with::DisplayFromStr")]
+    relative_minimum_surplus: BigDecimal,
+
+    /// The absolute minimum surplus required by the solver.
+    #[serde_as(as = "Option<serialize::U256>")]
+    absolute_minimum_surplus: Option<eth::U256>,
 
     /// The number of concurrent requests to make to the DEX aggregator API.
     #[serde(default = "default_concurrent_requests")]
@@ -80,6 +93,10 @@ struct Config {
 
 fn default_relative_slippage() -> BigDecimal {
     BigDecimal::new(1.into(), 2) // 1%
+}
+
+fn default_relative_minimum_surplus() -> BigDecimal {
+    BigDecimal::zero() // 0%
 }
 
 fn default_concurrent_requests() -> NonZeroUsize {
@@ -131,23 +148,25 @@ pub async fn load<T: DeserializeOwned>(path: &Path) -> (super::Config, T) {
     // CoW Protocol contracts have the same address.
     let contracts = contracts::Contracts::for_chain(eth::ChainId::Mainnet);
     let (settlement, authenticator) = if let Some(settlement) = config.settlement {
-        let authenticator = eth::ContractAddress({
-            let web3 = blockchain::rpc(&config.node_url);
-            let settlement = ::contracts::GPv2Settlement::at(&web3, settlement);
-            settlement
-                .methods()
-                .authenticator()
-                .call()
-                .await
-                .unwrap_or_else(|e| panic!("error reading authenticator contract address: {e:?}"))
-        });
-        (eth::ContractAddress(settlement), authenticator)
+        let authenticator =
+            {
+                let web3 = blockchain::rpc(&config.node_url);
+                let settlement = ::contracts::alloy::GPv2Settlement::Instance::new(
+                    settlement.into_alloy(),
+                    web3.alloy.clone(),
+                );
+                settlement.authenticator().call().await.unwrap_or_else(|e| {
+                    panic!("error reading authenticator contract address: {e:?}")
+                })
+            };
+        (settlement.into_alloy(), authenticator)
     } else {
         (contracts.settlement, contracts.authenticator)
     };
 
     let block_stream = match config.current_block_poll_interval {
         Some(interval) => Some(
+            #[allow(deprecated)]
             ethrpc::block_stream::current_block_stream(config.node_url.clone(), interval)
                 .await
                 .unwrap(),
@@ -161,11 +180,16 @@ pub async fn load<T: DeserializeOwned>(path: &Path) -> (super::Config, T) {
             settlement,
             authenticator,
         },
-        slippage: slippage::Limits::new(
+        slippage: SlippageLimits::new(
             config.relative_slippage,
             config.absolute_slippage.map(eth::Ether),
         )
         .expect("invalid slippage limits"),
+        minimum_surplus: MinimumSurplusLimits::new(
+            config.relative_minimum_surplus,
+            config.absolute_minimum_surplus.map(eth::Ether),
+        )
+        .expect("invalid minimum surplus limits"),
         concurrent_requests: config.concurrent_requests,
         smallest_partial_fill: eth::Ether(config.smallest_partial_fill),
         rate_limiting_strategy: rate_limit::Strategy::try_new(

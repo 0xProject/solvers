@@ -6,22 +6,27 @@ pub mod paraswap;
 pub mod zeroex;
 
 use {
-    crate::domain::{dex::slippage, eth},
+    crate::domain::{
+        dex::{minimum_surplus::MinimumSurplusLimits, slippage::SlippageLimits},
+        eth,
+    },
+    alloy::primitives::Address,
     ethrpc::block_stream::CurrentBlockWatcher,
     std::num::NonZeroUsize,
 };
 
 #[derive(Clone)]
 pub struct Contracts {
-    pub settlement: eth::ContractAddress,
-    pub authenticator: eth::ContractAddress,
+    pub settlement: Address,
+    pub authenticator: Address,
 }
 
 #[derive(Clone)]
 pub struct Config {
     pub node_url: reqwest::Url,
     pub contracts: Contracts,
-    pub slippage: slippage::Limits,
+    pub slippage: SlippageLimits,
+    pub minimum_surplus: MinimumSurplusLimits,
     pub concurrent_requests: NonZeroUsize,
     pub smallest_partial_fill: eth::Ether,
     pub rate_limiting_strategy: rate_limit::Strategy,

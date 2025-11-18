@@ -4,7 +4,7 @@ use {
         infra::dex::balancer::Error,
         util::serialize,
     },
-    bigdecimal::{num_bigint::BigInt, BigDecimal},
+    bigdecimal::{BigDecimal, num_bigint::BigInt},
     ethereum_types::{H160, H256, U256},
     number::conversions::u256_to_big_decimal,
     serde::{Deserialize, Serialize, Serializer},
@@ -13,11 +13,9 @@ use {
 
 /// Get swap quote from the SOR v2 for the V2 vault.
 const QUERY: &str = r#"
-query sorGetSwapPaths($callDataInput: GqlSwapCallDataInput!, $chain: GqlChain!, $queryBatchSwap: Boolean!, $swapAmount: AmountHumanReadable!, $swapType: GqlSorSwapType!, $tokenIn: String!, $tokenOut: String!) {
+query sorGetSwapPaths($chain: GqlChain!, $swapAmount: AmountHumanReadable!, $swapType: GqlSorSwapType!, $tokenIn: String!, $tokenOut: String!) {
     sorGetSwapPaths(
-        callDataInput: $callDataInput,
         chain: $chain,
-        queryBatchSwap: $queryBatchSwap,
         swapAmount: $swapAmount,
         swapType: $swapType,
         tokenIn: $tokenIn,
@@ -61,11 +59,7 @@ impl Query<'_> {
     pub fn from_domain(
         order: &dex::Order,
         tokens: &auction::Tokens,
-        slippage: &dex::Slippage,
         chain: Chain,
-        contract_address: eth::ContractAddress,
-        query_batch_swap: bool,
-        swap_deadline: Option<u64>,
     ) -> Result<Self, Error> {
         let token_decimals = match order.side {
             order::Side::Buy => tokens
@@ -76,14 +70,7 @@ impl Query<'_> {
                 .ok_or(Error::MissingDecimals(order.sell)),
         }?;
         let variables = Variables {
-            call_data_input: CallDataInput {
-                deadline: swap_deadline,
-                receiver: contract_address.0,
-                sender: contract_address.0,
-                slippage_percentage: slippage.as_factor().clone(),
-            },
             chain,
-            query_batch_swap,
             swap_amount: HumanReadableAmount::from_u256(&order.amount.get(), token_decimals),
             swap_type: SwapType::from_domain(order.side),
             token_in: order.sell.0,
@@ -120,6 +107,7 @@ impl HumanReadableAmount {
     }
 
     /// Convert the human readable amount to a `U256` with the token's decimals.
+    #[cfg(test)]
     pub fn as_wei(&self) -> U256 {
         self.amount
     }
@@ -138,12 +126,8 @@ impl Serialize for HumanReadableAmount {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct Variables {
-    call_data_input: CallDataInput,
     /// The Chain to query.
     chain: Chain,
-    /// Whether to run `queryBatchSwap` to update the return amount with most
-    /// up-to-date on-chain values.
-    query_batch_swap: bool,
     /// The amount to swap in human form.
     swap_amount: HumanReadableAmount,
     /// SwapType either exact_in or exact_out (also givenIn or givenOut).
@@ -154,38 +138,27 @@ struct Variables {
     token_out: H160,
 }
 
-/// Inputs for the call data to create the swap transaction. If this input is
-/// given, call data is added to the response.
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct CallDataInput {
-    /// How long the swap should be valid, provide a timestamp. `999999999` for
-    /// infinite. Default: infinite.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    deadline: Option<u64>,
-    /// Who receives the output amount.
-    receiver: H160,
-    /// Who sends the input amount.
-    sender: H160,
-    /// The max slippage in percent 0.01 -> 0.01%.
-    slippage_percentage: BigDecimal,
-}
-
 /// Balancer SOR API supported chains.
 #[derive(Serialize, Clone, Copy)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub(super) enum Chain {
+pub(crate) enum Chain {
     Arbitrum,
     Avalanche,
     Base,
-    Fantom,
-    Fraxtal,
     Gnosis,
     Mainnet,
-    Mode,
     Optimism,
+    Plasma,
     Polygon,
+    #[allow(dead_code)]
+    Mode,
+    #[allow(dead_code)]
+    Fraxtal,
+    #[allow(dead_code)]
     Sepolia,
+    #[allow(dead_code)]
+    Fantom,
+    #[allow(dead_code)]
     ZkEvm,
 }
 
@@ -199,7 +172,10 @@ impl Chain {
             eth::ChainId::Avalanche => Ok(Self::Avalanche),
             eth::ChainId::Polygon => Ok(Self::Polygon),
             eth::ChainId::Optimism => Ok(Self::Optimism),
-            eth::ChainId::Bnb | eth::ChainId::Goerli => Err(Error::UnsupportedChainId(chain_id)),
+            eth::ChainId::Plasma => Ok(Self::Plasma),
+            eth::ChainId::Bnb | eth::ChainId::Goerli | eth::ChainId::Linea => {
+                Err(Error::UnsupportedChainId(chain_id))
+            }
         }
     }
 }
@@ -297,7 +273,7 @@ pub struct Swap {
     /// The index in `token_addresses` for the input token.
     #[serde(with = "value_or_string")]
     pub asset_in_index: usize,
-    /// The index in `token_addresses` for the ouput token.
+    /// The index in `token_addresses` for the output token.
     #[serde(with = "value_or_string")]
     pub asset_out_index: usize,
     /// The amount to swap.
@@ -365,7 +341,7 @@ pub struct PathToken {
 mod address_default_when_empty {
     use {
         ethereum_types::H160,
-        serde::{de, Deserialize as _, Deserializer},
+        serde::{Deserialize as _, Deserializer, de},
         std::borrow::Cow,
     };
 
@@ -386,7 +362,7 @@ mod address_default_when_empty {
 /// generic enough to be used for any value that can be converted from a string.
 mod value_or_string {
     use {
-        serde::{de, Deserialize, Deserializer},
+        serde::{Deserialize, Deserializer, de},
         std::borrow::Cow,
     };
 
@@ -426,14 +402,12 @@ mod tests {
         let tokens = auction::Tokens(hashmap! {
             eth::TokenAddress(H160::from_str("0x2170ed0880ac9a755fd29b2688956bd959f933f8").unwrap()) => auction::Token {
                 decimals: Some(18),
-                symbol: Some("ETH".to_string()),
                 reference_price: None,
                 available_balance: U256::from(1000),
                 trusted: true,
             },
             eth::TokenAddress(H160::from_str("0xdac17f958d2ee523a2206206994597c13d831ec7").unwrap()) => auction::Token {
                 decimals: Some(24),
-                symbol: Some("USDT".to_string()),
                 reference_price: None,
                 available_balance: U256::from(1000),
                 trusted: true,
@@ -450,34 +424,14 @@ mod tests {
             amount: dex::Amount::new(U256::from(1000)),
             owner: H160::from_str("0x9008d19f58aabd9ed0d60971565aa8510560ab41").unwrap(),
         };
-        let slippage = dex::Slippage::one_percent();
         let chain = Chain::Mainnet;
-        let contract_address = eth::ContractAddress(
-            H160::from_str("0x9008d19f58aabd9ed0d60971565aa8510560ab41").unwrap(),
-        );
-        let query = Query::from_domain(
-            &order,
-            &tokens,
-            &slippage,
-            chain,
-            contract_address,
-            false,
-            Some(12345_u64),
-        )
-        .unwrap();
+        let query = Query::from_domain(&order, &tokens, chain).unwrap();
 
         let actual = serde_json::to_value(query).unwrap();
         let expected = json!({
             "query": QUERY,
             "variables": {
-                "callDataInput": {
-                    "deadline": 12345,
-                    "receiver": "0x9008d19f58aabd9ed0d60971565aa8510560ab41",
-                    "sender": "0x9008d19f58aabd9ed0d60971565aa8510560ab41",
-                    "slippagePercentage": "0.01"
-                },
                 "chain": "MAINNET",
-                "queryBatchSwap": false,
                 "swapAmount": "0.000000000000000000001",
                 "swapType": "EXACT_OUT",
                 "tokenIn": "0x2170ed0880ac9a755fd29b2688956bd959f933f8",

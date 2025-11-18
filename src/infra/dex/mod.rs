@@ -15,7 +15,7 @@ pub use self::simulator::Simulator;
 
 /// A supported external DEX/DEX aggregator API.
 pub enum Dex {
-    Balancer(balancer::Sor),
+    Balancer(Box<balancer::Sor>),
     OneInch(oneinch::OneInch),
     ZeroEx(zeroex::ZeroEx),
     ParaSwap(paraswap::ParaSwap),
@@ -128,6 +128,10 @@ impl From<zeroex::Error> for Error {
     fn from(err: zeroex::Error) -> Self {
         match err {
             zeroex::Error::NotFound => Self::NotFound,
+            // This is due an unknown internal error in 0x when when fetching storage of some
+            // tokens
+            // We map it to "NotFound" for now to avoid triggering alerts
+            zeroex::Error::MissingGasEstimate => Self::NotFound,
             zeroex::Error::RateLimited => Self::RateLimited,
             zeroex::Error::UnavailableForLegalReasons => Self::UnavailableForLegalReasons,
             zeroex::Error::OrderNotSupported => Self::OrderNotSupported,

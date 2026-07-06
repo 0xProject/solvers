@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v6
         with:
           ref: main
           fetch-depth: 0 # Fetch all history for all branches and tags
@@ -50,7 +50,7 @@ jobs:
 
       - name: "Create release"
         if: env.CHANGES_DETECTED == 'true'
-        uses: "actions/github-script@v6"
+        uses: "actions/github-script@v9"
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
           script: |
